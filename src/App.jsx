@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { removeBackground } from '@imgly/background-removal';
 import JSZip from 'jszip';
@@ -9,7 +9,7 @@ function App() {
   const [images, setImages] = useState([]);
   const [isProcessingAll, setIsProcessingAll] = useState(false);
 
-  const processImage = async (id, file) => {
+  const processImage = useCallback(async (id, file) => {
     setImages(prev => prev.map(img => 
       img.id === id ? { ...img, status: 'processing' } : img
     ));
@@ -33,7 +33,17 @@ function App() {
         img.id === id ? { ...img, status: 'error' } : img
       ));
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    const processingCount = images.filter(img => img.status === 'processing').length;
+    const pendingImages = images.filter(img => img.status === 'pending');
+    
+    if (processingCount < 5 && pendingImages.length > 0) {
+      const toProcess = pendingImages.slice(0, 5 - processingCount);
+      toProcess.forEach(img => processImage(img.id, img.file));
+    }
+  }, [images, processImage]);
 
   const onDrop = useCallback(async (acceptedFiles) => {
     const newImages = acceptedFiles.map(file => ({
@@ -46,9 +56,6 @@ function App() {
     }));
 
     setImages(prev => [...prev, ...newImages]);
-
-    // Automatically start processing
-    newImages.forEach(img => processImage(img.id, img.file));
   }, []);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
@@ -169,6 +176,7 @@ function App() {
                 <div className="p-3 flex items-center justify-between border-t border-gray-50">
                   <div className="truncate flex-1 pr-2">
                     <p className="text-sm font-medium text-gray-700 truncate" title={img.name}>{img.file.name}</p>
+                    {img.status === 'pending' && <p className="text-xs text-gray-500 flex items-center gap-1"><Loader2 className="w-3 h-3" /> En cola...</p>}
                     {img.status === 'done' && <p className="text-xs text-green-600 flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Completado</p>}
                     {img.status === 'error' && <p className="text-xs text-red-600">Error al procesar</p>}
                   </div>
