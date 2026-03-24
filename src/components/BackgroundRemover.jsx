@@ -36,24 +36,36 @@ function BackgroundRemover() {
   }, []);
 
   useEffect(() => {
+    // Procesar en orden de lista
     const processingCount = images.filter(img => img.status === 'processing').length;
     const pendingImages = images.filter(img => img.status === 'pending');
     
-    if (processingCount < 5 && pendingImages.length > 0) {
-      const toProcess = pendingImages.slice(0, 5 - processingCount);
+    // Procesar uno por uno para asegurar orden o pocos a la vez, pero respetando la cola
+    if (processingCount < 3 && pendingImages.length > 0) {
+      const toProcess = pendingImages.slice(0, 3 - processingCount);
       toProcess.forEach(img => processImage(img.id, img.file));
     }
   }, [images, processImage]);
 
   const onDrop = useCallback(async (acceptedFiles) => {
-    const newImages = acceptedFiles.map(file => ({
-      file,
-      id: Math.random().toString(36).substring(7),
-      preview: URL.createObjectURL(file),
-      status: 'pending', // pending, processing, done, error
-      result: null,
-      name: file.name.replace(/\.[^/.]+$/, "") + "_no_bg.png"
-    }));
+    // Ordenar los archivos entrantes alfabéticamente/numéricamente
+    const sortedFiles = acceptedFiles.sort((a, b) => 
+      a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
+    );
+
+    const newImages = sortedFiles.map((file, index) => {
+      // Usar un ID timestamp + index para mantener orden en react key
+      const id = Date.now().toString(36) + Math.random().toString(36).substr(2) + index;
+      return {
+        file,
+        id: id,
+        preview: URL.createObjectURL(file),
+        status: 'pending', // pending, processing, done, error
+        result: null,
+        // Nombre de archivo sugerido: conservar original pero asegurar orden en la UI
+        name: file.name.replace(/\.[^/.]+$/, "") + "_no_bg.png"
+      };
+    });
 
     setImages(prev => [...prev, ...newImages]);
   }, []);
@@ -88,8 +100,17 @@ function BackgroundRemover() {
     setIsProcessingAll(true);
     const zip = new JSZip();
     
-    doneImages.forEach(img => {
-      zip.file(img.name, img.result);
+    // Añadir al ZIP en el orden en que aparecen en la lista (que respeta el orden de carga/nombre)
+    doneImages.forEach((img, idx) => {
+       // Renombrar secuencialmente si se prefiere, o usar nombre original.
+       // El usuario pidió "tienen que salir en el orden de menor a mayor".
+       // Si subieron 1.png, 2.png -> se guardarán como tal.
+       // Si quieren renumeración explícita, podríamos hacer `${idx+1}.png`.
+       // Voy a mantener el nombre original pero asegurar que el ZIP los empaqueta en orden, 
+       // y si el usuario subió "1.png", "2.png", saldrán así.
+       // Opcional: Si los nombres son caóticos, tal vez quieran renumerar. 
+       // Por ahora, respeto el nombre original procesado.
+       zip.file(img.name, img.result);
     });
 
     const content = await zip.generateAsync({ type: 'blob' });
@@ -121,6 +142,7 @@ function BackgroundRemover() {
         <Upload className="w-12 h-12 text-indigo-500 mx-auto mb-4" />
         <p className="text-xl font-medium text-gray-700">Arrastra tus imágenes aquí</p>
         <p className="text-gray-500 mt-2">O haz clic para seleccionar archivos (PNG, JPG, WebP)</p>
+        <p className="text-xs text-gray-400 mt-2">Se ordenarán automáticamente por nombre</p>
       </div>
 
       {images.length > 0 && (

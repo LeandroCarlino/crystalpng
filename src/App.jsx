@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import BackgroundRemover from './components/BackgroundRemover';
 import VideoLooper from './components/VideoLooper';
 import VideoToFrames from './components/VideoToFrames';
-import { Image as ImageIcon, Video, Images } from 'lucide-react';
+import SpriteSheetMaker from './components/SpriteSheetMaker';
+import { Image as ImageIcon, Video, Images, Grid } from 'lucide-react';
 
 function App() {
   const [activeTab, setActiveTab] = useState('bg-remover');
@@ -11,13 +12,14 @@ function App() {
     { id: 'bg-remover', label: 'Eliminar Fondo', icon: ImageIcon, component: BackgroundRemover },
     { id: 'video-looper', label: 'Loop de Video', icon: Video, component: VideoLooper },
     { id: 'video-frames', label: 'Extraer Frames', icon: Images, component: VideoToFrames },
+    { id: 'spritesheet', label: 'SpriteSheet', icon: Grid, component: SpriteSheetMaker },
   ];
 
   const ActiveComponent = tabs.find(t => t.id === activeTab)?.component || BackgroundRemover;
 
   return (
     <div className="min-h-screen bg-gray-50 p-4 md:p-8">
-      <div className="max-w-5xl mx-auto">
+      <div className="max-w-7xl mx-auto">
         <header className="mb-8 text-center">
           <h1 className="text-4xl font-bold text-indigo-600 mb-2 flex items-center justify-center gap-2">
             <ImageIcon className="w-10 h-10" /> CrystalPng
@@ -25,8 +27,8 @@ function App() {
           <p className="text-gray-600">Herramientas multimedia impulsadas por IA en tu navegador.</p>
         </header>
 
-        <div className="mb-8 flex justify-center">
-          <div className="inline-flex bg-white rounded-xl shadow-sm border border-gray-200 p-1 gap-1">
+        <div className="mb-8 flex justify-center overflow-x-auto">
+          <div className="inline-flex bg-white rounded-xl shadow-sm border border-gray-200 p-1 gap-1 whitespace-nowrap">
             {tabs.map((tab) => (
               <button
                 key={tab.id}

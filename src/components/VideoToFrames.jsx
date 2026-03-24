@@ -11,7 +11,9 @@ function VideoToFrames() {
   const [videoUrl, setVideoUrl] = useState(null);
   const [loaded, setLoaded] = useState(false);
   const [processing, setProcessing] = useState(false);
-  const [fps, setFps] = useState(1);
+  // Reemplazamos 'fps' por 'intervalMs' y 'frameLimit'
+  const [intervalMs, setIntervalMs] = useState(100); 
+  const [frameLimit, setFrameLimit] = useState(0); // 0 = sin límite
   const [frames, setFrames] = useState([]);
   const ffmpegRef = useRef(new FFmpeg());
   const messageRef = useRef(null);
@@ -78,34 +80,56 @@ function VideoToFrames() {
     try {
       await ffmpeg.writeFile('input.mp4', await fetchFile(videoFile));
 
-      // Clear previous output files if any
-      // In a real app we might want to be more careful, but here we can just overwrite or assume clean env
-      // But ffmpeg.wasm in-memory filesystem persists until refreshed.
-      // We can try to delete files matching pattern if we want, but overwriting is easier.
-      
-      // Extract frames
-      // -vf fps=1 means 1 frame per second
-      await ffmpeg.exec([
-        '-i', 'input.mp4',
-        '-vf', `fps=${fps}`,
-        'frame_%03d.png'
-      ]);
+      // Calcular FPS basado en milisegundos
+      // 1000ms = 1 fps
+      // 500ms = 2 fps
+      // 100ms = 10 fps
+      const calculatedFps = 1000 / (intervalMs || 100);
 
-      // Read files
+      const outputPattern = 'frame_%04d.png';
+      
+      const args = [
+        '-i', 'input.mp4',
+        '-vf', `fps=${calculatedFps}`,
+      ];
+
+      if (frameLimit > 0) {
+        args.push('-vframes', frameLimit.toString());
+      }
+
+      args.push(outputPattern);
+
+      await ffmpeg.exec(args);
+
+      // Leer archivos generados
       const files = await ffmpeg.listDir('.');
-      const frameFiles = files.filter(f => f.name.startsWith('frame_') && f.name.endsWith('.png'));
+      // Filtrar y ordenar naturalmente por nombre para asegurar el orden correcto
+      const frameFiles = files
+        .filter(f => f.name.startsWith('frame_') && f.name.endsWith('.png'))
+        .sort((a, b) => a.name.localeCompare(b.name));
       
       const newFrames = [];
       for (const file of frameFiles) {
         const data = await ffmpeg.readFile(file.name);
         const blob = new Blob([data.buffer], { type: 'image/png' });
         const url = URL.createObjectURL(blob);
-        newFrames.push({ name: file.name, blob, url });
+        
+        newFrames.push({ 
+            originalName: file.name, 
+            blob, 
+            url 
+        });
       }
       
-      setFrames(newFrames);
+      // Renombrar secuencialmente de menor a mayor (1.png, 2.png, ...)
+      const enumeratedFrames = newFrames.map((frame, index) => ({
+          ...frame,
+          name: `${index + 1}.png`
+      }));
+
+      setFrames(enumeratedFrames);
       
-      // Cleanup
+      // Limpieza
       for (const file of frameFiles) {
           await ffmpeg.deleteFile(file.name);
       }
@@ -121,7 +145,10 @@ function VideoToFrames() {
   const downloadZip = async () => {
     if (frames.length === 0) return;
     const zip = new JSZip();
-    frames.forEach(frame => {
+    // Asegurar ordenamiento numérico
+    const sortedFrames = [...frames].sort((a, b) => parseInt(a.name) - parseInt(b.name));
+    
+    sortedFrames.forEach(frame => {
       zip.file(frame.name, frame.blob);
     });
     const content = await zip.generateAsync({ type: 'blob' });
@@ -165,20 +192,35 @@ function VideoToFrames() {
                <video src={videoUrl} controls className="w-full md:w-1/2 rounded-lg bg-black aspect-video" />
                
                <div className="w-full md:w-1/2 space-y-4">
+                 
                  <div>
-                   <label className="block text-sm font-medium text-gray-700 mb-1">FPS (Cuadros por segundo)</label>
+                   <label className="block text-sm font-medium text-gray-700 mb-1">Intervalo entre frames (milisegundos)</label>
                    <input 
                      type="number" 
-                     min="0.1" 
-                     max="60" 
-                     step="0.1" 
-                     value={fps} 
-                     onChange={(e) => setFps(parseFloat(e.target.value))}
+                     min="1"
+                     step="10" 
+                     value={intervalMs} 
+                     onChange={(e) => setIntervalMs(Math.max(1, parseInt(e.target.value) || 0))}
                      className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 outline-none"
                    />
                    <p className="text-xs text-gray-500 mt-1">
-                     Ejemplo: 1 = una imagen por segundo. 
-                     30 = 30 imágenes por segundo (muchas imágenes).
+                     Capturar una imagen cada {intervalMs} ms. ({(1000/intervalMs).toFixed(2)} FPS)
+                   </p>
+                 </div>
+
+                 <div>
+                   <label className="block text-sm font-medium text-gray-700 mb-1">Límite de frames (Opcional)</label>
+                   <input 
+                     type="number" 
+                     min="0"
+                     step="1" 
+                     value={frameLimit} 
+                     onChange={(e) => setFrameLimit(Math.max(0, parseInt(e.target.value) || 0))}
+                     className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 outline-none"
+                     placeholder="0 para sin límite"
+                   />
+                   <p className="text-xs text-gray-500 mt-1">
+                     0 = Extraer todo el video. Pon un número para detenerte tras esa cantidad.
                    </p>
                  </div>
 
@@ -213,8 +255,11 @@ function VideoToFrames() {
                
                <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-2 max-h-96 overflow-y-auto p-2 border rounded-lg">
                  {frames.map((frame, idx) => (
-                   <div key={idx} className="aspect-video bg-gray-100 rounded overflow-hidden">
+                   <div key={idx} className="aspect-video bg-gray-100 rounded overflow-hidden relative group">
                      <img src={frame.url} alt={frame.name} className="w-full h-full object-cover" />
+                     <div className="absolute bottom-0 left-0 right-0 bg-black/50 text-white text-[10px] p-1 text-center truncate">
+                        {frame.name}
+                     </div>
                    </div>
                  ))}
                </div>
